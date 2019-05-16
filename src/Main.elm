@@ -4,39 +4,31 @@ import Array exposing (Array)
 import Browser
 import Css
     exposing
-        ( Color
-        , alignItems
-        , backgroundColor
-        , bold
-        , center
-        , color
+        ( backgroundColor
+        , backgroundImage
+        , backgroundPosition2
         , displayFlex
-        , fontFamily
-        , fontSize
-        , fontWeight
         , height
-        , justifyContent
-        , monospace
-        , padding
-        , pct
+        , margin4
         , px
-        , rem
         , rgb
+        , url
         , width
         )
-import Grid exposing (Grid, randomCoordinates)
-import Html.Styled exposing (Html, div, text, toUnstyled)
+import Grid exposing (Grid, randomCoordinate)
+import Html.Styled exposing (Attribute, Html, div, toUnstyled)
 import Html.Styled.Attributes exposing (css)
 import Html.Styled.Events exposing (onClick)
 import Html.Styled.Events.Extra exposing (onRightClick)
+import List.Split as List exposing (chunksOfLeft)
 import Set exposing (Set)
 
 
 config : { rows : Int, columns : Int, mines : Int }
 config =
-    { rows = 10
-    , columns = 10
-    , mines = 10
+    { rows = 16
+    , columns = 30
+    , mines = 99
     }
 
 
@@ -65,23 +57,31 @@ type alias Model =
 
 
 type State
-    = Playing
+    = Building
+    | Playing
     | Lost ( Int, Int )
+    | Won
+
+
+initialGrid : Grid Cell
+initialGrid =
+    let
+        initialCell coordinate =
+            { state = Initial, coordinate = coordinate, value = Value 0 }
+    in
+    Grid.initialize config.rows config.columns initialCell
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     let
-        initialCell coordinate =
-            { state = Initial, coordinate = coordinate, value = Value 0 }
-
         grid =
-            Grid.initialize config.rows config.columns initialCell
+            initialGrid
     in
     ( { grid = grid
-      , state = Playing
+      , state = Building
       }
-    , randomCoordinates grid config.mines NewCoordinates
+    , randomCoordinate grid NewCoordinate
     )
 
 
@@ -102,11 +102,38 @@ setValues grid =
         grid
 
 
-minesCount : Grid Cell -> Int
-minesCount grid =
-    grid
-        |> Grid.filter (\cell -> cell.value == Mine)
-        |> List.length
+computeValue : Grid Cell -> ( Int, Int ) -> Int
+computeValue grid coordinate =
+    let
+        -- _ =
+        --     Debug.log "coordinate" coordinate
+        neighbors =
+            getNeighbors coordinate
+                |> Grid.getMultiple grid
+
+        -- _ =
+        --     Debug.log "neighbors" neighbors
+        value =
+            neighbors
+                |> List.filter (\cell -> cell.value == Mine)
+                |> List.length
+
+        -- _ =
+        --     Debug.log "value" value
+    in
+    value
+
+
+hasWon : Grid Cell -> Bool
+hasWon grid =
+    let
+        mines =
+            Grid.filter (\cell -> cell.value == Mine) grid
+
+        notRevealed =
+            Grid.filter (\cell -> cell.state /= Revealed) grid
+    in
+    mines == notRevealed
 
 
 
@@ -114,16 +141,37 @@ minesCount grid =
 
 
 type Msg
-    = NewCoordinates (List ( Int, Int ))
+    = NewCoordinate ( Int, Int )
     | LeftClick Cell
     | RightClick Cell
+    | ClickFace
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NewCoordinates coordinates ->
-            ( { model | grid = setMines model.grid coordinates }, Cmd.none )
+        NewCoordinate coordinate ->
+            let
+                -- _ =
+                --     Debug.log "coordinate" coordinate
+                newGrid =
+                    case Grid.get coordinate model.grid of
+                        Just cell ->
+                            Grid.set coordinate { cell | value = Mine } model.grid
+
+                        Nothing ->
+                            model.grid
+
+                count =
+                    newGrid
+                        |> Grid.filter (\cell -> cell.value == Mine)
+                        |> List.length
+            in
+            if count < config.mines then
+                ( { model | grid = newGrid }, randomCoordinate newGrid NewCoordinate )
+
+            else
+                ( { model | grid = setValues newGrid, state = Playing }, Cmd.none )
 
         LeftClick cell ->
             if cell.value == Mine then
@@ -136,10 +184,17 @@ update msg model =
 
             else
                 let
-                    nodesToReveal =
-                        search model.grid [] [ cell ]
+                    newGrid =
+                        search model.grid [ cell ]
+
+                    newState =
+                        if hasWon newGrid then
+                            Won
+
+                        else
+                            model.state
                 in
-                ( { model | grid = reveal model.grid nodesToReveal }, Cmd.none )
+                ( { model | grid = newGrid, state = newState }, Cmd.none )
 
         RightClick cell ->
             case cell.state of
@@ -156,64 +211,56 @@ update msg model =
                 Revealed ->
                     ( model, Cmd.none )
 
-
-setMines : Grid Cell -> List ( Int, Int ) -> Grid Cell
-setMines grid coordinates =
-    case coordinates of
-        head :: tail ->
-            case Grid.get head grid of
-                Just cell ->
-                    let
-                        newGrid =
-                            Grid.set head { cell | value = Mine } grid
-                    in
-                    setMines newGrid tail
-
-                Nothing ->
-                    grid
-
-        [] ->
-            grid
+        ClickFace ->
+            let
+                grid =
+                    initialGrid
+            in
+            ( { grid = grid
+              , state = Building
+              }
+            , randomCoordinate grid NewCoordinate
+            )
 
 
-search : Grid Cell -> List Cell -> List Cell -> List Cell
-search grid handled toHandle =
-    case toHandle of
-        [] ->
-            handled
-
-        head :: tail ->
-            case computeValue grid head.coordinate of
-                0 ->
-                    let
-                        newNodes =
-                            neighbors8 head.coordinate
-                                |> Grid.getMultiple grid
-                                |> List.filter (\cell -> List.member cell handled |> not)
-                                |> List.filter (\cell -> List.member cell tail |> not)
-                    in
-                    search grid (head :: handled) (tail ++ newNodes)
-
-                _ ->
-                    search grid (head :: handled) tail
-
-
-reveal : Grid Cell -> List Cell -> Grid Cell
-reveal grid cells =
+search : Grid Cell -> List Cell -> Grid Cell
+search grid cells =
     case cells of
         [] ->
             grid
 
         head :: tail ->
-            let
-                newGrid =
-                    Grid.set head.coordinate { head | state = Revealed } grid
-            in
-            reveal newGrid tail
+            case ( head.state, head.value ) of
+                ( Initial, Value 0 ) ->
+                    let
+                        newCells =
+                            head.coordinate
+                                |> getNeighbors
+                                |> Grid.getMultiple grid
+                                |> List.filter (\cell -> cell.state == Initial && not (List.member cell tail))
+                    in
+                    search (reveal grid head) (tail ++ newCells)
+
+                ( Initial, Value _ ) ->
+                    search (reveal grid head) tail
+
+                ( Revealed, Value _ ) ->
+                    search grid tail
+
+                ( Flag, Value _ ) ->
+                    search grid tail
+
+                ( _, Mine ) ->
+                    search grid tail
 
 
-neighbors8 : ( Int, Int ) -> List ( Int, Int )
-neighbors8 ( x, y ) =
+reveal : Grid Cell -> Cell -> Grid Cell
+reveal grid cell =
+    Grid.set cell.coordinate { cell | state = Revealed } grid
+
+
+getNeighbors : ( Int, Int ) -> List ( Int, Int )
+getNeighbors ( x, y ) =
     [ ( x - 1, y - 1 )
     , ( x - 1, y )
     , ( x - 1, y + 1 )
@@ -225,102 +272,161 @@ neighbors8 ( x, y ) =
     ]
 
 
-computeValue : Grid Cell -> ( Int, Int ) -> Int
-computeValue grid coordinate =
-    neighbors8 coordinate
-        |> Grid.getMultiple grid
-        |> List.filter (\cell -> cell.value == Mine)
-        |> List.length
-
-
 
 -- view
 
 
 view : Model -> Html Msg
 view model =
-    model.grid
-        |> Grid.map (cellView model)
-        |> Array.toList
-        |> List.map row
-        |> div [ css [ displayFlex ] ]
+    let
+        rows =
+            model.grid
+                |> Grid.map (cellView model)
+                |> Grid.toLists
+                |> List.map row
+    in
+    div []
+        (topBorder config.columns
+            :: [ ribbon config.columns ]
+            ++ [ middleBorder config.columns ]
+            ++ rows
+            ++ [ bottomBorder config.columns ]
+        )
 
 
-row : Array (Html msg) -> Html msg
+row : List (Html msg) -> Html msg
 row elements =
-    elements
-        |> Array.toList
-        |> div []
+    div [ css [ displayFlex ] ]
+        (sideView :: elements ++ [ sideView ])
 
 
-type alias NodeStyle =
-    { backgroundColor : Color
-    , title : String
-    , color : Color
-    }
+topLeftCorner : Html msg
+topLeftCorner =
+    spriteView ( 0, -81 ) 10 10
 
 
-colorForValue : Int -> Color
-colorForValue value =
-    case value of
-        1 ->
-            rgb 11 36 251
-
-        2 ->
-            rgb 14 122 17
-
-        3 ->
-            rgb 252 13 27
-
-        4 ->
-            rgb 2 11 121
-
-        5 ->
-            rgb 122 3 7
-
-        6 ->
-            rgb 16 123 122
-
-        8 ->
-            rgb 123 123 123
-
-        _ ->
-            rgb 0 0 0
+topRightCorner : Html msg
+topRightCorner =
+    spriteView ( -10, -81 ) 10 10
 
 
-titleForValue : Int -> String
-titleForValue value =
-    case value of
-        0 ->
-            ""
-
-        i ->
-            String.fromInt i
+topBorderCell : Html msg
+topBorderCell =
+    spriteView ( -40, -81 ) 16 10
 
 
-backgroundGray : Color
-backgroundGray =
-    rgb 189 189 189
+bottomLeftCorner : Html msg
+bottomLeftCorner =
+    spriteView ( -20, -81 ) 10 10
+
+
+bottomRightCorner : Html msg
+bottomRightCorner =
+    spriteView ( -30, -81 ) 10 10
+
+
+topBorder : Int -> Html msg
+topBorder count =
+    div
+        [ css [ displayFlex ] ]
+        (topLeftCorner :: List.repeat count topBorderCell ++ [ topRightCorner ])
+
+
+middleLeftCorner : Html msg
+middleLeftCorner =
+    spriteView ( -56, -81 ) 10 10
+
+
+middleRightCorner : Html msg
+middleRightCorner =
+    spriteView ( -66, -81 ) 10 10
+
+
+middleBorder : Int -> Html msg
+middleBorder count =
+    div
+        [ css [ displayFlex ] ]
+        (middleLeftCorner :: List.repeat count topBorderCell ++ [ middleRightCorner ])
+
+
+bottomBorder : Int -> Html msg
+bottomBorder count =
+    div
+        [ css [ displayFlex ] ]
+        (bottomLeftCorner :: List.repeat count topBorderCell ++ [ bottomRightCorner ])
+
+
+ribbonBorder : Html msg
+ribbonBorder =
+    spriteView ( -134, -39 ) 10 32
+
+
+spriteView : ( Float, Float ) -> Float -> Float -> Html msg
+spriteView ( x, y ) w h =
+    div
+        [ css
+            [ backgroundImage (url "/assets/sprite.gif")
+            , backgroundPosition2 (px x) (px y)
+            , width (px w)
+            , height (px h)
+            ]
+        ]
+        []
+
+
+faceButton : Int -> Html Msg
+faceButton count =
+    let
+        amount =
+            (16 * toFloat count - 26) / 2
+    in
+    div
+        [ css [ backgroundColor (rgb 192 192 192) ]
+        ]
+        [ div
+            [ css
+                [ backgroundImage (url "/assets/sprite.gif")
+                , backgroundPosition2 (px 0) (px -55)
+                , width (px 26)
+                , height (px 26)
+                , margin4 (px 3) (px amount) (px 3) (px amount)
+                ]
+            , onClick ClickFace
+            ]
+            []
+        ]
+
+
+ribbon : Int -> Html Msg
+ribbon count =
+    div
+        [ css [ displayFlex ] ]
+        [ ribbonBorder, faceButton count, ribbonBorder ]
+
+
+sideView : Html msg
+sideView =
+    spriteView ( -134, -39 ) 10 16
 
 
 cellView : Model -> Cell -> Html Msg
 cellView model cell =
     case model.state of
+        Building ->
+            initialViewSilent
+
         Playing ->
             case cell.state of
                 Initial ->
                     initialView cell
 
                 Revealed ->
-                    let
-                        value =
-                            computeValue model.grid cell.coordinate
-                    in
-                    revealedView
-                        { backgroundColor = backgroundGray
-                        , title = titleForValue value
-                        , color = colorForValue value
-                        }
+                    case cell.value of
+                        Mine ->
+                            div [] []
+
+                        Value value ->
+                            valueView value
 
                 Flag ->
                     flagView cell
@@ -333,16 +439,8 @@ cellView model cell =
                 ( Initial, Mine ) ->
                     bombView
 
-                ( Revealed, Value _ ) ->
-                    let
-                        value =
-                            computeValue model.grid cell.coordinate
-                    in
-                    revealedView
-                        { backgroundColor = backgroundGray
-                        , title = titleForValue value
-                        , color = colorForValue value
-                        }
+                ( Revealed, Value value ) ->
+                    valueView value
 
                 ( Revealed, Mine ) ->
                     bombClickedView
@@ -353,141 +451,71 @@ cellView model cell =
                 ( Flag, Value _ ) ->
                     errorView
 
+        Won ->
+            case cell.value of
+                Value value ->
+                    valueView value
+
+                Mine ->
+                    flagViewSilent
+
 
 initialView : Cell -> Html Msg
 initialView cell =
-    div
-        [ css
-            [ backgroundColor (rgb 100 100 100)
-            , width (pct 100)
-            , height (pct 100)
-            ]
-        , onClick (LeftClick cell)
+    tileView ( 0, -39 )
+        [ onClick (LeftClick cell)
         , onRightClick (RightClick cell)
         ]
-        []
-        |> tileView
 
 
 initialViewSilent : Html Msg
 initialViewSilent =
-    div
-        [ css
-            [ backgroundColor (rgb 100 100 100)
-            , width (pct 100)
-            , height (pct 100)
-            ]
-        ]
-        []
-        |> tileView
+    tileView ( 0, -39 ) []
 
 
 bombView : Html Msg
 bombView =
-    revealedView
-        { backgroundColor = backgroundGray
-        , title = "💣"
-        , color = rgb 0 0 0
-        }
+    tileView ( -64, -39 ) []
 
 
 bombClickedView : Html Msg
 bombClickedView =
-    revealedView
-        { backgroundColor = rgb 255 0 0
-        , title = "💣"
-        , color = rgb 0 0 0
-        }
+    tileView ( -32, -39 ) []
 
 
 flagView : Cell -> Html Msg
 flagView cell =
-    div
-        [ css
-            [ backgroundColor (rgb 100 100 100)
-            , width (pct 100)
-            , height (pct 100)
-            , displayFlex
-            , alignItems center
-            , justifyContent center
-            , fontFamily monospace
-            , fontWeight bold
-            , fontSize (px 18)
-            ]
-        , onRightClick (RightClick cell)
-        ]
-        [ text "⚑" ]
-        |> tileView
+    tileView ( -16, -39 ) [ onRightClick (RightClick cell) ]
 
 
 flagViewSilent : Html Msg
 flagViewSilent =
-    div
-        [ css
-            [ backgroundColor (rgb 100 100 100)
-            , width (pct 100)
-            , height (pct 100)
-            , displayFlex
-            , alignItems center
-            , justifyContent center
-            , fontFamily monospace
-            , fontWeight bold
-            , fontSize (px 18)
-            ]
-        ]
-        [ text "⚑" ]
-        |> tileView
+    tileView ( -16, -39 ) []
 
 
 errorView : Html Msg
 errorView =
-    div
-        [ css
-            [ backgroundColor (rgb 100 100 100)
-            , width (pct 100)
-            , height (pct 100)
-            , displayFlex
-            , alignItems center
-            , justifyContent center
-            , fontFamily monospace
-            , fontWeight bold
-            , fontSize (px 18)
-            ]
-        ]
-        [ text "❌" ]
-        |> tileView
+    tileView ( -48, -39 ) []
 
 
-revealedView : NodeStyle -> Html msg
-revealedView style =
-    div
-        [ css
-            [ backgroundColor style.backgroundColor
-            , width (pct 100)
-            , height (pct 100)
-            , displayFlex
-            , alignItems center
-            , justifyContent center
-            , color style.color
-            , fontFamily monospace
-            , fontWeight bold
-            , fontSize (px 18)
-            ]
-        ]
-        [ text style.title ]
-        |> tileView
+valueView : Int -> Html Msg
+valueView value =
+    tileView ( -(16 * toFloat value), -23 ) []
 
 
-tileView : Html msg -> Html msg
-tileView content =
-    div
-        [ css
-            [ height (rem 2)
-            , width (rem 2)
-            , padding (rem 0.1)
-            ]
-        ]
-        [ content ]
+tileView : ( Float, Float ) -> List (Attribute msg) -> Html msg
+tileView ( dx, dy ) events =
+    let
+        attributes =
+            css
+                [ backgroundImage (url "/assets/sprite.gif")
+                , backgroundPosition2 (px dx) (px dy)
+                , height (px 16)
+                , width (px 16)
+                ]
+                :: events
+    in
+    div attributes []
 
 
 
