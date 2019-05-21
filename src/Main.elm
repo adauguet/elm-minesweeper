@@ -1,7 +1,7 @@
 module Main exposing (main)
 
-import Array exposing (Array)
 import Browser
+import Browser.Events as Events
 import Css
     exposing
         ( backgroundColor
@@ -18,10 +18,9 @@ import Css
 import Grid exposing (Grid, randomCoordinate)
 import Html.Styled exposing (Attribute, Html, div, toUnstyled)
 import Html.Styled.Attributes exposing (css)
-import Html.Styled.Events exposing (onClick)
-import Html.Styled.Events.Extra exposing (onRightClick)
-import List.Split as List exposing (chunksOfLeft)
-import Set exposing (Set)
+import Html.Styled.Events exposing (onMouseOut, onMouseOver)
+import Html.Styled.Events.Extra exposing (Button(..), onClick, onContextMenu, onMouseDown, onMouseUp)
+import Json.Decode as D
 
 
 config : { rows : Int, columns : Int, mines : Int }
@@ -32,28 +31,28 @@ config =
     }
 
 
+type CellValue
+    = Mine
+    | Value Int
+
+
 type CellState
     = Initial
     | Flag
     | Revealed
 
 
-type CellValue
-    = Mine
-    | Value Int
-
-
 type alias Cell =
     { value : CellValue
     , coordinate : ( Int, Int )
     , state : CellState
+    , isDown : Bool
     }
 
 
-type alias Model =
-    { grid : Grid Cell
-    , state : State
-    }
+type FaceState
+    = FaceStateUp FaceStateUp
+    | FaceStateDown
 
 
 type State
@@ -63,11 +62,26 @@ type State
     | Won
 
 
+type FaceStateUp
+    = FaceStateUpDefault
+    | FaceStateUpLost
+    | FaceStateUpWon
+    | FaceStateUpSurprise
+
+
+type alias Model =
+    { grid : Grid Cell
+    , state : State
+    , faceState : FaceState
+    , isMouseDown : Bool
+    }
+
+
 initialGrid : Grid Cell
 initialGrid =
     let
         initialCell coordinate =
-            { state = Initial, coordinate = coordinate, value = Value 0 }
+            { state = Initial, coordinate = coordinate, value = Value 0, isDown = False }
     in
     Grid.initialize config.rows config.columns initialCell
 
@@ -80,6 +94,8 @@ init _ =
     in
     ( { grid = grid
       , state = Building
+      , faceState = FaceStateUp FaceStateUpDefault
+      , isMouseDown = False
       }
     , randomCoordinate grid NewCoordinate
     )
@@ -105,21 +121,14 @@ setValues grid =
 computeValue : Grid Cell -> ( Int, Int ) -> Int
 computeValue grid coordinate =
     let
-        -- _ =
-        --     Debug.log "coordinate" coordinate
         neighbors =
             getNeighbors coordinate
                 |> Grid.getMultiple grid
 
-        -- _ =
-        --     Debug.log "neighbors" neighbors
         value =
             neighbors
                 |> List.filter (\cell -> cell.value == Mine)
                 |> List.length
-
-        -- _ =
-        --     Debug.log "value" value
     in
     value
 
@@ -142,9 +151,17 @@ hasWon grid =
 
 type Msg
     = NewCoordinate ( Int, Int )
-    | LeftClick Cell
-    | RightClick Cell
-    | ClickFace
+    | OnCellMouseDown Cell Button
+    | OnCellMouseOver Cell
+    | OnCellMouseOut Cell
+    | OnCellMouseClick Cell Button
+    | OnCellMouseUp Cell Button
+    | OnFaceMouseDown Button
+    | OnFaceMouseOut
+    | OnFaceClick Button
+    | OnMouseDown
+    | OnMouseUp
+    | NoOp
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -152,8 +169,6 @@ update msg model =
     case msg of
         NewCoordinate coordinate ->
             let
-                -- _ =
-                --     Debug.log "coordinate" coordinate
                 newGrid =
                     case Grid.get coordinate model.grid of
                         Just cell ->
@@ -173,11 +188,94 @@ update msg model =
             else
                 ( { model | grid = setValues newGrid, state = Playing }, Cmd.none )
 
-        LeftClick cell ->
+        OnCellMouseDown cell Left ->
+            ( { model
+                | grid = setCellDown model.grid cell True
+                , faceState = FaceStateUp FaceStateUpSurprise
+              }
+            , Cmd.none
+            )
+
+        OnCellMouseDown _ Middle ->
+            ( { model | faceState = FaceStateUp FaceStateUpSurprise }, Cmd.none )
+
+        OnCellMouseDown cell Right ->
+            case cell.state of
+                Flag ->
+                    ( { model | grid = unFlagCell model.grid cell }, Cmd.none )
+
+                Initial ->
+                    ( { model | grid = flagCell model.grid cell }, Cmd.none )
+
+                Revealed ->
+                    ( model, Cmd.none )
+
+        OnCellMouseClick cell Left ->
+            handleCellLeftClick model cell
+
+        OnCellMouseClick _ Middle ->
+            ( model, Cmd.none )
+
+        OnCellMouseClick _ Right ->
+            ( model, Cmd.none )
+
+        OnCellMouseOver cell ->
+            if model.isMouseDown then
+                ( { model | grid = setCellDown model.grid cell True }, Cmd.none )
+
+            else
+                ( model, Cmd.none )
+
+        OnCellMouseOut cell ->
+            ( { model | grid = setCellDown model.grid cell False }, Cmd.none )
+
+        OnCellMouseUp cell Left ->
+            handleCellLeftClick model cell
+
+        OnCellMouseUp _ Middle ->
+            ( model, Cmd.none )
+
+        OnCellMouseUp _ Right ->
+            ( model, Cmd.none )
+
+        OnFaceMouseDown _ ->
+            ( { model | faceState = FaceStateDown }, Cmd.none )
+
+        OnFaceClick Left ->
+            init ()
+
+        OnFaceClick Middle ->
+            ( model, Cmd.none )
+
+        OnFaceClick Right ->
+            ( model, Cmd.none )
+
+        OnFaceMouseOut ->
+            if model.faceState == FaceStateDown then
+                ( { model | faceState = FaceStateUp FaceStateUpDefault }, Cmd.none )
+
+            else
+                ( model, Cmd.none )
+
+        OnMouseDown ->
+            ( { model | isMouseDown = True }, Cmd.none )
+
+        OnMouseUp ->
+            ( { model | isMouseDown = False, faceState = FaceStateUp FaceStateUpDefault }, Cmd.none )
+
+        NoOp ->
+            ( model, Cmd.none )
+
+
+handleCellLeftClick : Model -> Cell -> ( Model, Cmd Msg )
+handleCellLeftClick model cell =
+    case cell.state of
+        Initial ->
             if cell.value == Mine then
                 ( { model
                     | grid = Grid.set cell.coordinate { cell | state = Revealed } model.grid
                     , state = Lost cell.coordinate
+                    , faceState = FaceStateUp FaceStateUpLost
                   }
                 , Cmd.none
                 )
@@ -186,41 +284,33 @@ update msg model =
                 let
                     newGrid =
                         search model.grid [ cell ]
-
-                    newState =
-                        if hasWon newGrid then
-                            Won
-
-                        else
-                            model.state
                 in
-                ( { model | grid = newGrid, state = newState }, Cmd.none )
-
-        RightClick cell ->
-            case cell.state of
-                Initial ->
-                    ( { model | grid = Grid.set cell.coordinate { cell | state = Flag } model.grid }
+                if hasWon newGrid then
+                    ( { model
+                        | grid = newGrid
+                        , state = Won
+                        , faceState = FaceStateUp FaceStateUpWon
+                      }
                     , Cmd.none
                     )
 
-                Flag ->
-                    ( { model | grid = Grid.set cell.coordinate { cell | state = Initial } model.grid }
+                else
+                    ( { model
+                        | grid = newGrid
+                        , faceState = FaceStateUp FaceStateUpDefault
+                      }
                     , Cmd.none
                     )
 
-                Revealed ->
-                    ( model, Cmd.none )
+        Flag ->
+            ( model, Cmd.none )
 
-        ClickFace ->
-            let
-                grid =
-                    initialGrid
-            in
-            ( { grid = grid
-              , state = Building
-              }
-            , randomCoordinate grid NewCoordinate
-            )
+        Revealed ->
+            ( model, Cmd.none )
+
+
+
+-- reveal algorithm
 
 
 search : Grid Cell -> List Cell -> Grid Cell
@@ -239,10 +329,10 @@ search grid cells =
                                 |> Grid.getMultiple grid
                                 |> List.filter (\cell -> cell.state == Initial && not (List.member cell tail))
                     in
-                    search (reveal grid head) (tail ++ newCells)
+                    search (revealCell grid head) (tail ++ newCells)
 
                 ( Initial, Value _ ) ->
-                    search (reveal grid head) tail
+                    search (revealCell grid head) tail
 
                 ( Revealed, Value _ ) ->
                     search grid tail
@@ -254,9 +344,24 @@ search grid cells =
                     search grid tail
 
 
-reveal : Grid Cell -> Cell -> Grid Cell
-reveal grid cell =
+revealCell : Grid Cell -> Cell -> Grid Cell
+revealCell grid cell =
     Grid.set cell.coordinate { cell | state = Revealed } grid
+
+
+flagCell : Grid Cell -> Cell -> Grid Cell
+flagCell grid cell =
+    Grid.set cell.coordinate { cell | state = Flag } grid
+
+
+unFlagCell : Grid Cell -> Cell -> Grid Cell
+unFlagCell grid cell =
+    Grid.set cell.coordinate { cell | state = Initial } grid
+
+
+setCellDown : Grid Cell -> Cell -> Bool -> Grid Cell
+setCellDown grid cell isDown =
+    Grid.set cell.coordinate { cell | isDown = isDown } grid
 
 
 getNeighbors : ( Int, Int ) -> List ( Int, Int )
@@ -287,17 +392,180 @@ view model =
     in
     div []
         (topBorder config.columns
-            :: [ ribbon config.columns ]
-            ++ [ middleBorder config.columns ]
-            ++ rows
+            :: ribbon config.columns model.faceState
+            :: middleBorder config.columns
+            :: rows
             ++ [ bottomBorder config.columns ]
         )
+
+
+ribbon : Int -> FaceState -> Html Msg
+ribbon count faceState =
+    div
+        [ css [ displayFlex ] ]
+        [ ribbonBorder, faceButton count faceState, ribbonBorder ]
 
 
 row : List (Html msg) -> Html msg
 row elements =
     div [ css [ displayFlex ] ]
         (sideView :: elements ++ [ sideView ])
+
+
+
+-- face button
+
+
+faceButton : Int -> FaceState -> Html Msg
+faceButton count faceState =
+    let
+        amount =
+            (16 * toFloat count - 26) / 2
+    in
+    div
+        [ css [ backgroundColor (rgb 192 192 192) ]
+        ]
+        [ div
+            [ css [ margin4 (px 3) (px amount) (px 3) (px amount) ]
+            , case faceState of
+                FaceStateUp FaceStateUpDefault ->
+                    spriteAttributes ( 0, -55 ) 26 26
+
+                FaceStateDown ->
+                    spriteAttributes ( -26, -55 ) 26 26
+
+                FaceStateUp FaceStateUpSurprise ->
+                    spriteAttributes ( -52, -55 ) 26 26
+
+                FaceStateUp FaceStateUpLost ->
+                    spriteAttributes ( -78, -55 ) 26 26
+
+                FaceStateUp FaceStateUpWon ->
+                    spriteAttributes ( -104, -55 ) 26 26
+            , onClick OnFaceClick
+            , onMouseDown OnFaceMouseDown
+            , onMouseOut OnFaceMouseOut
+            ]
+            []
+        ]
+
+
+
+-- cells
+
+
+cellView : Model -> Cell -> Html Msg
+cellView model cell =
+    case model.state of
+        Building ->
+            initialViewSilent
+
+        Playing ->
+            case cell.state of
+                Initial ->
+                    if cell.isDown then
+                        clickedView cell
+
+                    else
+                        initialView cell
+
+                Revealed ->
+                    case cell.value of
+                        -- this case should not happen
+                        Mine ->
+                            div [] []
+
+                        Value value ->
+                            valueView value
+
+                Flag ->
+                    flagView cell
+
+        Lost _ ->
+            case ( cell.state, cell.value ) of
+                ( Initial, Value _ ) ->
+                    initialViewSilent
+
+                ( Initial, Mine ) ->
+                    bombView
+
+                ( Revealed, Value value ) ->
+                    valueView value
+
+                ( Revealed, Mine ) ->
+                    bombClickedView
+
+                ( Flag, Mine ) ->
+                    flagViewSilent
+
+                ( Flag, Value _ ) ->
+                    errorView
+
+        Won ->
+            case cell.value of
+                Value value ->
+                    valueView value
+
+                Mine ->
+                    flagViewSilent
+
+
+initialView : Cell -> Html Msg
+initialView cell =
+    tileView ( 0, -39 )
+        [ onMouseDown (OnCellMouseDown cell)
+        , onMouseOver (OnCellMouseOver cell)
+        , onMouseOut (OnCellMouseOut cell)
+        ]
+
+
+clickedView : Cell -> Html Msg
+clickedView cell =
+    tileView ( 0, -23 )
+        [ onMouseUp (OnCellMouseUp cell)
+        , onClick (OnCellMouseClick cell)
+        , onMouseOut (OnCellMouseOut cell)
+        ]
+
+
+initialViewSilent : Html Msg
+initialViewSilent =
+    tileView ( 0, -39 ) []
+
+
+bombView : Html Msg
+bombView =
+    tileView ( -64, -39 ) []
+
+
+bombClickedView : Html Msg
+bombClickedView =
+    tileView ( -32, -39 ) []
+
+
+flagView : Cell -> Html Msg
+flagView cell =
+    tileView ( -16, -39 )
+        [ onMouseDown (OnCellMouseDown cell) ]
+
+
+flagViewSilent : Html Msg
+flagViewSilent =
+    tileView ( -16, -39 ) []
+
+
+errorView : Html Msg
+errorView =
+    tileView ( -48, -39 ) []
+
+
+valueView : Int -> Html Msg
+valueView value =
+    tileView ( -(16 * toFloat value), -23 ) []
+
+
+
+-- decorative views
 
 
 topLeftCorner : Html msg
@@ -361,161 +629,45 @@ ribbonBorder =
     spriteView ( -134, -39 ) 10 32
 
 
-spriteView : ( Float, Float ) -> Float -> Float -> Html msg
-spriteView ( x, y ) w h =
-    div
-        [ css
-            [ backgroundImage (url "/assets/sprite.gif")
-            , backgroundPosition2 (px x) (px y)
-            , width (px w)
-            , height (px h)
-            ]
-        ]
-        []
-
-
-faceButton : Int -> Html Msg
-faceButton count =
-    let
-        amount =
-            (16 * toFloat count - 26) / 2
-    in
-    div
-        [ css [ backgroundColor (rgb 192 192 192) ]
-        ]
-        [ div
-            [ css
-                [ backgroundImage (url "/assets/sprite.gif")
-                , backgroundPosition2 (px 0) (px -55)
-                , width (px 26)
-                , height (px 26)
-                , margin4 (px 3) (px amount) (px 3) (px amount)
-                ]
-            , onClick ClickFace
-            ]
-            []
-        ]
-
-
-ribbon : Int -> Html Msg
-ribbon count =
-    div
-        [ css [ displayFlex ] ]
-        [ ribbonBorder, faceButton count, ribbonBorder ]
-
-
 sideView : Html msg
 sideView =
     spriteView ( -134, -39 ) 10 16
 
 
-cellView : Model -> Cell -> Html Msg
-cellView model cell =
-    case model.state of
-        Building ->
-            initialViewSilent
 
-        Playing ->
-            case cell.state of
-                Initial ->
-                    initialView cell
-
-                Revealed ->
-                    case cell.value of
-                        Mine ->
-                            div [] []
-
-                        Value value ->
-                            valueView value
-
-                Flag ->
-                    flagView cell
-
-        Lost ( _, _ ) ->
-            case ( cell.state, cell.value ) of
-                ( Initial, Value _ ) ->
-                    initialViewSilent
-
-                ( Initial, Mine ) ->
-                    bombView
-
-                ( Revealed, Value value ) ->
-                    valueView value
-
-                ( Revealed, Mine ) ->
-                    bombClickedView
-
-                ( Flag, Mine ) ->
-                    flagViewSilent
-
-                ( Flag, Value _ ) ->
-                    errorView
-
-        Won ->
-            case cell.value of
-                Value value ->
-                    valueView value
-
-                Mine ->
-                    flagViewSilent
+-- view helpers
 
 
-initialView : Cell -> Html Msg
-initialView cell =
-    tileView ( 0, -39 )
-        [ onClick (LeftClick cell)
-        , onRightClick (RightClick cell)
+tileView : ( Float, Float ) -> List (Attribute Msg) -> Html Msg
+tileView offset events =
+    div (spriteAttributes offset 16 16 :: events ++ [ onContextMenu NoOp ]) []
+
+
+spriteView : ( Float, Float ) -> Float -> Float -> Html msg
+spriteView offset width height =
+    div [ spriteAttributes offset width height ] []
+
+
+spriteAttributes : ( Float, Float ) -> Float -> Float -> Attribute msg
+spriteAttributes ( x, y ) w h =
+    css
+        [ backgroundImage (url "/assets/sprite.gif")
+        , backgroundPosition2 (px x) (px y)
+        , width (px w)
+        , height (px h)
         ]
 
 
-initialViewSilent : Html Msg
-initialViewSilent =
-    tileView ( 0, -39 ) []
+
+-- subscriptions
 
 
-bombView : Html Msg
-bombView =
-    tileView ( -64, -39 ) []
-
-
-bombClickedView : Html Msg
-bombClickedView =
-    tileView ( -32, -39 ) []
-
-
-flagView : Cell -> Html Msg
-flagView cell =
-    tileView ( -16, -39 ) [ onRightClick (RightClick cell) ]
-
-
-flagViewSilent : Html Msg
-flagViewSilent =
-    tileView ( -16, -39 ) []
-
-
-errorView : Html Msg
-errorView =
-    tileView ( -48, -39 ) []
-
-
-valueView : Int -> Html Msg
-valueView value =
-    tileView ( -(16 * toFloat value), -23 ) []
-
-
-tileView : ( Float, Float ) -> List (Attribute msg) -> Html msg
-tileView ( dx, dy ) events =
-    let
-        attributes =
-            css
-                [ backgroundImage (url "/assets/sprite.gif")
-                , backgroundPosition2 (px dx) (px dy)
-                , height (px 16)
-                , width (px 16)
-                ]
-                :: events
-    in
-    div attributes []
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.batch
+        [ Events.onMouseUp (D.succeed OnMouseUp)
+        , Events.onMouseDown (D.succeed OnMouseDown)
+        ]
 
 
 
@@ -528,5 +680,5 @@ main =
         { init = init
         , view = view >> toUnstyled
         , update = update
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         }
