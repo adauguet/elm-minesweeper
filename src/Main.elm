@@ -651,7 +651,7 @@ spriteView offset width height =
 spriteAttributes : ( Float, Float ) -> Float -> Float -> Attribute msg
 spriteAttributes ( x, y ) w h =
     css
-        [ backgroundImage (url "/assets/sprite.gif")
+        [ backgroundImage (url "assets/sprite.gif")
         , backgroundPosition2 (px x) (px y)
         , width (px w)
         , height (px h)
