@@ -2,25 +2,15 @@ module Main exposing (main)
 
 import Browser
 import Browser.Events as Events
-import Css
-    exposing
-        ( backgroundColor
-        , backgroundImage
-        , backgroundPosition2
-        , displayFlex
-        , height
-        , margin4
-        , px
-        , rgb
-        , url
-        , width
-        )
+import Counter exposing (counter)
+import Css exposing (..)
 import Grid exposing (Grid, randomCoordinate)
 import Html.Styled exposing (Attribute, Html, div, toUnstyled)
 import Html.Styled.Attributes exposing (css)
 import Html.Styled.Events exposing (onMouseOut, onMouseOver)
 import Html.Styled.Events.Extra exposing (Button(..), onClick, onContextMenu, onMouseDown, onMouseUp)
 import Json.Decode as D
+import Time exposing (Posix)
 
 
 config : { rows : Int, columns : Int, mines : Int }
@@ -57,7 +47,7 @@ type FaceState
 
 type State
     = Building
-    | Playing
+    | Playing Bool
     | Lost ( Int, Int )
     | Won
 
@@ -74,6 +64,8 @@ type alias Model =
     , state : State
     , faceState : FaceState
     , isMouseDown : Bool
+    , flags : Int
+    , seconds : Int
     }
 
 
@@ -96,6 +88,8 @@ init _ =
       , state = Building
       , faceState = FaceStateUp FaceStateUpDefault
       , isMouseDown = False
+      , flags = 0
+      , seconds = 0
       }
     , randomCoordinate grid NewCoordinate
     )
@@ -161,6 +155,7 @@ type Msg
     | OnFaceClick Button
     | OnMouseDown
     | OnMouseUp
+    | Tic Posix
     | NoOp
 
 
@@ -186,7 +181,7 @@ update msg model =
                 ( { model | grid = newGrid }, randomCoordinate newGrid NewCoordinate )
 
             else
-                ( { model | grid = setValues newGrid, state = Playing }, Cmd.none )
+                ( { model | grid = setValues newGrid, state = Playing False }, Cmd.none )
 
         OnCellMouseDown cell Left ->
             ( { model
@@ -202,10 +197,10 @@ update msg model =
         OnCellMouseDown cell Right ->
             case cell.state of
                 Flag ->
-                    ( { model | grid = unFlagCell model.grid cell }, Cmd.none )
+                    ( { model | grid = unFlagCell model.grid cell, flags = model.flags - 1 }, Cmd.none )
 
                 Initial ->
-                    ( { model | grid = flagCell model.grid cell }, Cmd.none )
+                    ( { model | grid = flagCell model.grid cell, flags = model.flags + 1 }, Cmd.none )
 
                 Revealed ->
                     ( model, Cmd.none )
@@ -263,6 +258,14 @@ update msg model =
         OnMouseUp ->
             ( { model | isMouseDown = False, faceState = FaceStateUp FaceStateUpDefault }, Cmd.none )
 
+        Tic _ ->
+            case model.state of
+                Playing True ->
+                    ( { model | seconds = model.seconds + 1 }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
         NoOp ->
             ( model, Cmd.none )
 
@@ -298,6 +301,7 @@ handleCellLeftClick model cell =
                     ( { model
                         | grid = newGrid
                         , faceState = FaceStateUp FaceStateUpDefault
+                        , state = Playing True
                       }
                     , Cmd.none
                     )
@@ -390,20 +394,25 @@ view model =
                 |> Grid.toLists
                 |> List.map row
     in
-    div []
+    div
+        [ css
+            [ width (px 500)
+            , backgroundColor (rgb 192 192 192)
+            ]
+        ]
         (topBorder config.columns
-            :: ribbon config.columns model.faceState
+            :: ribbon config.columns (config.mines - model.flags) model.seconds model.faceState
             :: middleBorder config.columns
             :: rows
             ++ [ bottomBorder config.columns ]
         )
 
 
-ribbon : Int -> FaceState -> Html Msg
-ribbon count faceState =
+ribbon : Int -> Int -> Int -> FaceState -> Html Msg
+ribbon count flagCount seconds faceState =
     div
         [ css [ displayFlex ] ]
-        [ ribbonBorder, faceButton count faceState, ribbonBorder ]
+        [ ribbonBorder, counter flagCount 6 0, faceButton count faceState, counter seconds 0 6, ribbonBorder ]
 
 
 row : List (Html msg) -> Html msg
@@ -420,11 +429,10 @@ faceButton : Int -> FaceState -> Html Msg
 faceButton count faceState =
     let
         amount =
-            (16 * toFloat count - 26) / 2
+            (16 * toFloat count - 26) / 2 - 45
     in
     div
-        [ css [ backgroundColor (rgb 192 192 192) ]
-        ]
+        []
         [ div
             [ css [ margin4 (px 3) (px amount) (px 3) (px amount) ]
             , case faceState of
@@ -460,7 +468,7 @@ cellView model cell =
         Building ->
             initialViewSilent
 
-        Playing ->
+        Playing _ ->
             case cell.state of
                 Initial ->
                     if cell.isDown then
@@ -487,13 +495,13 @@ cellView model cell =
                     initialViewSilent
 
                 ( Initial, Mine ) ->
-                    bombView
+                    mineView
 
                 ( Revealed, Value value ) ->
                     valueView value
 
                 ( Revealed, Mine ) ->
-                    bombClickedView
+                    mineClickedView
 
                 ( Flag, Mine ) ->
                     flagViewSilent
@@ -533,13 +541,13 @@ initialViewSilent =
     tileView ( 0, -39 ) []
 
 
-bombView : Html Msg
-bombView =
+mineView : Html Msg
+mineView =
     tileView ( -64, -39 ) []
 
 
-bombClickedView : Html Msg
-bombClickedView =
+mineClickedView : Html Msg
+mineClickedView =
     tileView ( -32, -39 ) []
 
 
@@ -667,6 +675,7 @@ subscriptions _ =
     Sub.batch
         [ Events.onMouseUp (D.succeed OnMouseUp)
         , Events.onMouseDown (D.succeed OnMouseDown)
+        , Time.every 1000 Tic
         ]
 
 
