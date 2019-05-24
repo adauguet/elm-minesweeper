@@ -1,11 +1,12 @@
 module Grid exposing
     ( Grid
+    , allCoordinates
     , filter
     , get
     , getMultiple
     , initialize
     , map
-    , randomCoordinate
+    , randomCoordinates
     , set
     , toList
     , toLists
@@ -13,7 +14,8 @@ module Grid exposing
 
 import Array exposing (Array)
 import List.Split as List
-import Random
+import Random exposing (Generator)
+import Random.Array
 
 
 
@@ -39,22 +41,6 @@ initialize numRows numColumns f =
         , numColumns = numColumns
         , data = Array.initialize (numRows * numColumns) f_
         }
-
-
-randomCoordinate : Grid a -> (( Int, Int ) -> msg) -> Cmd msg
-randomCoordinate grid message =
-    Random.pair (Random.int 0 (rows grid - 1)) (Random.int 0 (columns grid - 1))
-        |> Random.generate message
-
-
-rows : Grid a -> Int
-rows (Grid { numRows }) =
-    numRows
-
-
-columns : Grid a -> Int
-columns (Grid { numColumns }) =
-    numColumns
 
 
 get : ( Int, Int ) -> Grid a -> Maybe a
@@ -112,6 +98,45 @@ filter isIncluded (Grid { data }) =
     data
         |> Array.toList
         |> List.filter isIncluded
+
+
+randomCoordinates : Int -> Grid a -> Generator (List ( Int, Int ))
+randomCoordinates count (Grid grid) =
+    List.range 0 (Array.length grid.data - 1)
+        |> Array.fromList
+        |> shuffle
+        |> Random.map (Array.toList >> List.take count >> List.map (decode grid.numColumns))
+
+
+{-| source elm-community/random-extra on release 3.0.0 with a real Fisher Yates algorithm
+-}
+shuffle : Array a -> Generator (Array a)
+shuffle arr =
+    if Array.isEmpty arr then
+        Random.constant arr
+
+    else
+        let
+            helper : ( List a, Array a ) -> Generator ( List a, Array a )
+            helper ( done, remaining ) =
+                Random.Array.choose remaining
+                    |> Random.andThen
+                        (\( m_val, shorter ) ->
+                            case m_val of
+                                Nothing ->
+                                    Random.constant ( done, shorter )
+
+                                Just val ->
+                                    helper ( val :: done, shorter )
+                        )
+        in
+        Random.map (Tuple.first >> Array.fromList) (helper ( [], arr ))
+
+
+allCoordinates : Grid a -> List ( Int, Int )
+allCoordinates (Grid { numColumns, data }) =
+    List.range 0 (Array.length data - 1)
+        |> List.map (decode numColumns)
 
 
 

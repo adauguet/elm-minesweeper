@@ -1,7 +1,19 @@
-module Counter exposing (bound, counter, toDigitChar)
+module Counter exposing (counter, toDigitChar)
 
-import Css exposing (..)
-import Html.Styled exposing (Attribute, Html, div)
+import Css
+    exposing
+        ( Style
+        , backgroundImage
+        , backgroundPosition2
+        , displayFlex
+        , height
+        , margin4
+        , px
+        , url
+        , width
+        , zero
+        )
+import Html.Styled exposing (Html, div)
 import Html.Styled.Attributes exposing (css)
 
 
@@ -12,9 +24,9 @@ counter int leftMargin rightMargin =
             toDigitChar int
     in
     div [ css [ displayFlex ] ]
-        [ div [ css ([ margin4 (px 4) zero (px 5) (px leftMargin) ] ++ digitStyle char1) ] []
-        , div [ css ([ margin4 (px 4) zero (px 5) zero ] ++ digitStyle char2) ] []
-        , div [ css ([ margin4 (px 4) (px rightMargin) (px 5) zero ] ++ digitStyle char3) ] []
+        [ div [ css (margin4 (px 4) zero (px 5) (px leftMargin) :: digitStyle char1) ] []
+        , div [ css (margin4 (px 4) zero (px 5) zero :: digitStyle char2) ] []
+        , div [ css (margin4 (px 4) (px rightMargin) (px 5) zero :: digitStyle char3) ] []
         ]
 
 
@@ -22,7 +34,7 @@ toDigitChar : Int -> ( Char, Char, Char )
 toDigitChar int =
     let
         int_ =
-            bound int -99 999
+            clamp -99 999 int
     in
     if int_ < 0 then
         case
@@ -53,11 +65,6 @@ toDigitChar int =
 
             a :: b :: c :: _ ->
                 ( a, b, c )
-
-
-bound : Int -> Int -> Int -> Int
-bound int low high =
-    min high (max int low)
 
 
 digitStyle : Char -> List Style

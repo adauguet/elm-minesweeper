@@ -1,4 +1,4 @@
-module Example exposing (suite)
+module Tests exposing (suite)
 
 import Counter exposing (..)
 import Expect exposing (Expectation)
@@ -9,16 +9,7 @@ import Test exposing (..)
 suite : Test
 suite =
     describe "Counter"
-        [ fuzz int "bound" <|
-            \int ->
-                Expect.all
-                    [ Expect.atMost 999
-                    , Expect.atLeast -99
-                    ]
-                    (Counter.bound int -99 999)
-        , fuzz (intRange -99 999) "bound with valid range" <|
-            \int -> Expect.equal int (Counter.bound int -99 999)
-        , test "toDigitChar positive" <|
+        [ test "toDigitChar positive" <|
             \_ -> Expect.equal ( '0', '1', '0' ) (Counter.toDigitChar 10)
         , test "toDigitChar negative" <|
             \_ -> Expect.equal ( '-', '0', '1' ) (Counter.toDigitChar -1)

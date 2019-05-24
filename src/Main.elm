@@ -2,14 +2,16 @@ module Main exposing (main)
 
 import Browser
 import Browser.Events as Events
+import Cell exposing (Cell, CellState(..), CellValue(..))
 import Counter exposing (counter)
-import Css exposing (..)
-import Grid exposing (Grid, randomCoordinate)
+import Css exposing (backgroundColor, backgroundImage, backgroundPosition2, displayFlex, height, margin4, px, rgb, url, width)
+import Grid exposing (Grid, randomCoordinates)
 import Html.Styled exposing (Attribute, Html, div, toUnstyled)
 import Html.Styled.Attributes exposing (css)
 import Html.Styled.Events exposing (onMouseOut, onMouseOver)
 import Html.Styled.Events.Extra exposing (Button(..), onClick, onContextMenu, onMouseDown, onMouseUp)
 import Json.Decode as D
+import Random
 import Time exposing (Posix)
 
 
@@ -17,26 +19,7 @@ config : { rows : Int, columns : Int, mines : Int }
 config =
     { rows = 16
     , columns = 30
-    , mines = 99
-    }
-
-
-type CellValue
-    = Mine
-    | Value Int
-
-
-type CellState
-    = Initial
-    | Flag
-    | Revealed
-
-
-type alias Cell =
-    { value : CellValue
-    , coordinate : ( Int, Int )
-    , state : CellState
-    , isDown : Bool
+    , mines = 10
     }
 
 
@@ -91,14 +74,15 @@ init _ =
       , flags = 0
       , seconds = 0
       }
-    , randomCoordinate grid NewCoordinate
+    , Random.generate GotMinesCoordinates (randomCoordinates config.mines grid)
     )
 
 
 setValues : Grid Cell -> Grid Cell
 setValues grid =
-    Grid.map
-        (\cell ->
+    let
+        setValue : Cell -> Cell
+        setValue cell =
             { cell
                 | value =
                     case cell.value of
@@ -108,8 +92,8 @@ setValues grid =
                         Mine ->
                             Mine
             }
-        )
-        grid
+    in
+    Grid.map setValue grid
 
 
 computeValue : Grid Cell -> ( Int, Int ) -> Int
@@ -144,7 +128,7 @@ hasWon grid =
 
 
 type Msg
-    = NewCoordinate ( Int, Int )
+    = GotMinesCoordinates (List ( Int, Int ))
     | OnCellMouseDown Cell Button
     | OnCellMouseOver Cell
     | OnCellMouseOut Cell
@@ -162,26 +146,12 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NewCoordinate coordinate ->
+        GotMinesCoordinates coordinates ->
             let
                 newGrid =
-                    case Grid.get coordinate model.grid of
-                        Just cell ->
-                            Grid.set coordinate { cell | value = Mine } model.grid
-
-                        Nothing ->
-                            model.grid
-
-                count =
-                    newGrid
-                        |> Grid.filter (\cell -> cell.value == Mine)
-                        |> List.length
+                    setMines model.grid (List.take 99 coordinates)
             in
-            if count < config.mines then
-                ( { model | grid = newGrid }, randomCoordinate newGrid NewCoordinate )
-
-            else
-                ( { model | grid = setValues newGrid, state = Playing False }, Cmd.none )
+            ( { model | grid = setValues newGrid, state = Playing False }, Cmd.none )
 
         OnCellMouseDown cell Left ->
             ( { model
@@ -259,12 +229,7 @@ update msg model =
             ( { model | isMouseDown = False, faceState = FaceStateUp FaceStateUpDefault }, Cmd.none )
 
         Tic _ ->
-            case model.state of
-                Playing True ->
-                    ( { model | seconds = model.seconds + 1 }, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
+            ( { model | seconds = model.seconds + 1 }, Cmd.none )
 
         NoOp ->
             ( model, Cmd.none )
@@ -311,6 +276,30 @@ handleCellLeftClick model cell =
 
         Revealed ->
             ( model, Cmd.none )
+
+
+setMines : Grid Cell -> List ( Int, Int ) -> Grid Cell
+setMines grid coordinates =
+    case coordinates of
+        [] ->
+            grid
+
+        head :: tail ->
+            let
+                newGrid =
+                    setMine grid head
+            in
+            setMines newGrid tail
+
+
+setMine : Grid Cell -> ( Int, Int ) -> Grid Cell
+setMine grid coordinate =
+    case Grid.get coordinate grid of
+        Just cell ->
+            Grid.set coordinate { cell | value = Mine } grid
+
+        Nothing ->
+            grid
 
 
 
@@ -431,8 +420,7 @@ faceButton count faceState =
         amount =
             (16 * toFloat count - 26) / 2 - 45
     in
-    div
-        []
+    div []
         [ div
             [ css [ margin4 (px 3) (px amount) (px 3) (px amount) ]
             , case faceState of
@@ -671,11 +659,15 @@ spriteAttributes ( x, y ) w h =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions model =
     Sub.batch
         [ Events.onMouseUp (D.succeed OnMouseUp)
         , Events.onMouseDown (D.succeed OnMouseDown)
-        , Time.every 1000 Tic
+        , if model.state == Playing True then
+            Time.every 1000 Tic
+
+          else
+            Sub.none
         ]
 
 
