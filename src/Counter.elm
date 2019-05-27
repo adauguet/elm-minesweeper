@@ -3,18 +3,14 @@ module Counter exposing (counter, toDigitChar)
 import Css
     exposing
         ( Style
-        , backgroundImage
-        , backgroundPosition2
         , displayFlex
-        , height
         , margin4
         , px
-        , url
-        , width
         , zero
         )
 import Html.Styled exposing (Html, div)
 import Html.Styled.Attributes exposing (css)
+import UI
 
 
 counter : Int -> Float -> Float -> Html msg
@@ -24,9 +20,9 @@ counter int leftMargin rightMargin =
             toDigitChar int
     in
     div [ css [ displayFlex ] ]
-        [ div [ css (margin4 (px 4) zero (px 5) (px leftMargin) :: digitStyle char1) ] []
-        , div [ css (margin4 (px 4) zero (px 5) zero :: digitStyle char2) ] []
-        , div [ css (margin4 (px 4) (px rightMargin) (px 5) zero :: digitStyle char3) ] []
+        [ div [ css (margin4 (px 4) zero (px 5) (px leftMargin) :: digitStyles char1) ] []
+        , div [ css (margin4 (px 4) zero (px 5) zero :: digitStyles char2) ] []
+        , div [ css (margin4 (px 4) (px rightMargin) (px 5) zero :: digitStyles char3) ] []
         ]
 
 
@@ -67,50 +63,41 @@ toDigitChar int =
                 ( a, b, c )
 
 
-digitStyle : Char -> List Style
-digitStyle char =
-    let
-        styles : ( Float, Float ) -> List Style
-        styles ( x, y ) =
-            [ backgroundImage (url "assets/sprite.gif")
-            , backgroundPosition2 (px x) (px y)
-            , width (px 13)
-            , height (px 23)
-            ]
-    in
+digitStyles : Char -> List Style
+digitStyles char =
     case char of
         '0' ->
-            styles ( 0, 0 )
+            UI.digitStyles 0
 
         '1' ->
-            styles ( -13, 0 )
+            UI.digitStyles -13
 
         '2' ->
-            styles ( -26, 0 )
+            UI.digitStyles -26
 
         '3' ->
-            styles ( -39, 0 )
+            UI.digitStyles -39
 
         '4' ->
-            styles ( -52, 0 )
+            UI.digitStyles -52
 
         '5' ->
-            styles ( -65, 0 )
+            UI.digitStyles -65
 
         '6' ->
-            styles ( -78, 0 )
+            UI.digitStyles -78
 
         '7' ->
-            styles ( -91, 0 )
+            UI.digitStyles -91
 
         '8' ->
-            styles ( -104, 0 )
+            UI.digitStyles -104
 
         '9' ->
-            styles ( -117, 0 )
+            UI.digitStyles -117
 
         '-' ->
-            styles ( -130, 0 )
+            UI.digitStyles -130
 
         _ ->
             []

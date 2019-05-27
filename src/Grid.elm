@@ -1,6 +1,5 @@
 module Grid exposing
     ( Grid
-    , allCoordinates
     , filter
     , get
     , getMultiple
@@ -15,13 +14,13 @@ module Grid exposing
 import Array exposing (Array)
 import List.Split as List
 import Random exposing (Generator)
-import Random.Array
+import Random.Array.Extra
+import Set
 
 
-
--- source: Punie/elm-matrix
-
-
+{-| source: Punie/elm-matrix
+The Grid's internal implementation is hidden by not exposing the constructor.
+-}
 type Grid a
     = Grid
         { numRows : Int
@@ -45,11 +44,8 @@ initialize numRows numColumns f =
 
 get : ( Int, Int ) -> Grid a -> Maybe a
 get ( row, col ) (Grid { numRows, numColumns, data }) =
-    if row < 0 || col < 0 || row >= numRows || col >= numColumns then
-        Nothing
-
-    else
-        Array.get (encode numColumns ( row, col )) data
+    encode numRows numColumns ( row, col )
+        |> Maybe.andThen (\index -> Array.get index data)
 
 
 getMultiple : Grid a -> List ( Int, Int ) -> List a
@@ -61,15 +57,20 @@ getMultiple grid list =
 
 set : ( Int, Int ) -> a -> Grid a -> Grid a
 set ( row, col ) newValue (Grid { numRows, numColumns, data }) =
-    let
-        index =
-            encode numColumns ( row, col )
-    in
-    Grid
-        { numRows = numRows
-        , numColumns = numColumns
-        , data = Array.set index newValue data
-        }
+    case encode numRows numColumns ( row, col ) of
+        Just index ->
+            Grid
+                { numRows = numRows
+                , numColumns = numColumns
+                , data = Array.set index newValue data
+                }
+
+        Nothing ->
+            Grid
+                { numRows = numRows
+                , numColumns = numColumns
+                , data = data
+                }
 
 
 map : (a -> b) -> Grid a -> Grid b
@@ -100,52 +101,43 @@ filter isIncluded (Grid { data }) =
         |> List.filter isIncluded
 
 
-randomCoordinates : Int -> Grid a -> Generator (List ( Int, Int ))
-randomCoordinates count (Grid grid) =
-    List.range 0 (Array.length grid.data - 1)
+randomCoordinates : Int -> Grid a -> List ( Int, Int ) -> Generator (List ( Int, Int ))
+randomCoordinates count (Grid grid) avoid =
+    let
+        avoid_ =
+            avoid
+                |> List.map (encode grid.numRows grid.numColumns)
+                |> List.filterMap identity
+                |> Set.fromList
+    in
+    -- compute all coordinates
+    (Array.length grid.data - 1)
+        |> List.range 0
+        -- convert to set
+        |> Set.fromList
+        -- remove coordinates to avoid
+        |> (\s -> Set.diff s avoid_)
+        -- convert to List
+        |> Set.toList
+        -- convert to Array
         |> Array.fromList
-        |> shuffle
+        -- shuffle Array
+        |> Random.Array.Extra.shuffle
+        -- convert to List, take count, decode
         |> Random.map (Array.toList >> List.take count >> List.map (decode grid.numColumns))
-
-
-{-| source elm-community/random-extra on release 3.0.0 with a real Fisher Yates algorithm
--}
-shuffle : Array a -> Generator (Array a)
-shuffle arr =
-    if Array.isEmpty arr then
-        Random.constant arr
-
-    else
-        let
-            helper : ( List a, Array a ) -> Generator ( List a, Array a )
-            helper ( done, remaining ) =
-                Random.Array.choose remaining
-                    |> Random.andThen
-                        (\( m_val, shorter ) ->
-                            case m_val of
-                                Nothing ->
-                                    Random.constant ( done, shorter )
-
-                                Just val ->
-                                    helper ( val :: done, shorter )
-                        )
-        in
-        Random.map (Tuple.first >> Array.fromList) (helper ( [], arr ))
-
-
-allCoordinates : Grid a -> List ( Int, Int )
-allCoordinates (Grid { numColumns, data }) =
-    List.range 0 (Array.length data - 1)
-        |> List.map (decode numColumns)
 
 
 
 -- utilities
 
 
-encode : Int -> ( Int, Int ) -> Int
-encode numColumns ( x, y ) =
-    x * numColumns + y
+encode : Int -> Int -> ( Int, Int ) -> Maybe Int
+encode numRows numColumns ( x, y ) =
+    if x < 0 || y < 0 || x >= numRows || y >= numColumns then
+        Nothing
+
+    else
+        Just (x * numColumns + y)
 
 
 decode : Int -> Int -> ( Int, Int )

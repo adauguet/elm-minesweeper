@@ -4,22 +4,32 @@ import Browser
 import Browser.Events as Events
 import Cell exposing (Cell, CellState(..), CellValue(..))
 import Counter exposing (counter)
-import Css exposing (backgroundColor, backgroundImage, backgroundPosition2, displayFlex, height, margin4, px, rgb, url, width)
+import Css exposing (backgroundColor, displayFlex, margin4, px, rgb, width)
 import Grid exposing (Grid, randomCoordinates)
-import Html.Styled exposing (Attribute, Html, div, toUnstyled)
+import Html.Styled exposing (Html, div, toUnstyled)
 import Html.Styled.Attributes exposing (css)
 import Html.Styled.Events exposing (onMouseOut, onMouseOver)
 import Html.Styled.Events.Extra exposing (Button(..), onClick, onContextMenu, onMouseDown, onMouseUp)
 import Json.Decode as D
 import Random
 import Time exposing (Posix)
+import UI
+    exposing
+        ( bottomBorder
+        , faceStyles
+        , middleBorder
+        , ribbonBorder
+        , row
+        , tileView
+        , topBorder
+        )
 
 
 config : { rows : Int, columns : Int, mines : Int }
 config =
     { rows = 16
     , columns = 30
-    , mines = 10
+    , mines = 99
     }
 
 
@@ -29,8 +39,7 @@ type FaceState
 
 
 type State
-    = Building
-    | Playing Bool
+    = Playing Bool
     | Lost ( Int, Int )
     | Won
 
@@ -61,6 +70,19 @@ initialGrid =
     Grid.initialize config.rows config.columns initialCell
 
 
+testCoordinates =
+    [ ( 0, 0 )
+    , ( 0, 1 )
+    , ( 0, 2 )
+    , ( 1, 0 )
+    , ( 1, 1 )
+    , ( 1, 2 )
+    , ( 2, 0 )
+    , ( 2, 1 )
+    , ( 2, 2 )
+    ]
+
+
 init : () -> ( Model, Cmd Msg )
 init _ =
     let
@@ -68,18 +90,18 @@ init _ =
             initialGrid
     in
     ( { grid = grid
-      , state = Building
+      , state = Playing False
       , faceState = FaceStateUp FaceStateUpDefault
       , isMouseDown = False
       , flags = 0
       , seconds = 0
       }
-    , Random.generate GotMinesCoordinates (randomCoordinates config.mines grid)
+    , Cmd.none
     )
 
 
-setValues : Grid Cell -> Grid Cell
-setValues grid =
+computeValues : Grid Cell -> Grid Cell
+computeValues grid =
     let
         setValue : Cell -> Cell
         setValue cell =
@@ -128,7 +150,7 @@ hasWon grid =
 
 
 type Msg
-    = GotMinesCoordinates (List ( Int, Int ))
+    = GotMinesCoordinates ( Int, Int ) (List ( Int, Int ))
     | OnCellMouseDown Cell Button
     | OnCellMouseOver Cell
     | OnCellMouseOut Cell
@@ -146,12 +168,22 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        GotMinesCoordinates coordinates ->
+        GotMinesCoordinates coordinate coordinates ->
             let
                 newGrid =
-                    setMines model.grid (List.take 99 coordinates)
+                    model.grid
+                        |> setMines coordinates
+                        |> computeValues
+
+                newModel =
+                    { model | grid = newGrid, state = Playing True }
             in
-            ( { model | grid = setValues newGrid, state = Playing False }, Cmd.none )
+            case Grid.get coordinate newGrid of
+                Just cell ->
+                    handleCellLeftClick newModel cell
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         OnCellMouseDown cell Left ->
             ( { model
@@ -176,7 +208,7 @@ update msg model =
                     ( model, Cmd.none )
 
         OnCellMouseClick cell Left ->
-            handleCellLeftClick model cell
+            ( model, Cmd.none )
 
         OnCellMouseClick _ Middle ->
             ( model, Cmd.none )
@@ -237,49 +269,60 @@ update msg model =
 
 handleCellLeftClick : Model -> Cell -> ( Model, Cmd Msg )
 handleCellLeftClick model cell =
-    case cell.state of
-        Initial ->
-            if cell.value == Mine then
-                ( { model
-                    | grid = Grid.set cell.coordinate { cell | state = Revealed } model.grid
-                    , state = Lost cell.coordinate
-                    , faceState = FaceStateUp FaceStateUpLost
-                  }
-                , Cmd.none
-                )
+    case model.state of
+        Playing True ->
+            case cell.state of
+                Initial ->
+                    if cell.value == Mine then
+                        ( { model
+                            | grid = Grid.set cell.coordinate { cell | state = Revealed } model.grid
+                            , state = Lost cell.coordinate
+                            , faceState = FaceStateUp FaceStateUpLost
+                          }
+                        , Cmd.none
+                        )
 
-            else
-                let
-                    newGrid =
-                        search model.grid [ cell ]
-                in
-                if hasWon newGrid then
-                    ( { model
-                        | grid = newGrid
-                        , state = Won
-                        , faceState = FaceStateUp FaceStateUpWon
-                      }
-                    , Cmd.none
-                    )
+                    else
+                        let
+                            newGrid =
+                                search model.grid [ cell ]
+                        in
+                        if hasWon newGrid then
+                            ( { model
+                                | grid = newGrid
+                                , state = Won
+                                , faceState = FaceStateUp FaceStateUpWon
+                              }
+                            , Cmd.none
+                            )
 
-                else
-                    ( { model
-                        | grid = newGrid
-                        , faceState = FaceStateUp FaceStateUpDefault
-                        , state = Playing True
-                      }
-                    , Cmd.none
-                    )
+                        else
+                            ( { model
+                                | grid = newGrid
+                                , faceState = FaceStateUp FaceStateUpDefault
+                              }
+                            , Cmd.none
+                            )
 
-        Flag ->
+                Flag ->
+                    ( model, Cmd.none )
+
+                Revealed ->
+                    ( model, Cmd.none )
+
+        Playing False ->
+            let
+                avoid =
+                    cell.coordinate :: getNeighbors cell.coordinate
+            in
+            ( model, Random.generate (GotMinesCoordinates cell.coordinate) (randomCoordinates config.mines model.grid avoid) )
+
+        _ ->
             ( model, Cmd.none )
 
-        Revealed ->
-            ( model, Cmd.none )
 
-
-setMines : Grid Cell -> List ( Int, Int ) -> Grid Cell
-setMines grid coordinates =
+setMines : List ( Int, Int ) -> Grid Cell -> Grid Cell
+setMines coordinates grid =
     case coordinates of
         [] ->
             grid
@@ -287,13 +330,13 @@ setMines grid coordinates =
         head :: tail ->
             let
                 newGrid =
-                    setMine grid head
+                    setMine head grid
             in
-            setMines newGrid tail
+            setMines tail newGrid
 
 
-setMine : Grid Cell -> ( Int, Int ) -> Grid Cell
-setMine grid coordinate =
+setMine : ( Int, Int ) -> Grid Cell -> Grid Cell
+setMine coordinate grid =
     case Grid.get coordinate grid of
         Just cell ->
             Grid.set coordinate { cell | value = Mine } grid
@@ -303,7 +346,7 @@ setMine grid coordinate =
 
 
 
--- reveal algorithm
+-- search and reveal algorithm
 
 
 search : Grid Cell -> List Cell -> Grid Cell
@@ -388,11 +431,13 @@ view model =
             [ width (px 500)
             , backgroundColor (rgb 192 192 192)
             ]
+        , onContextMenu NoOp
         ]
-        (topBorder config.columns
-            :: ribbon config.columns (config.mines - model.flags) model.seconds model.faceState
-            :: middleBorder config.columns
-            :: rows
+        ([ topBorder config.columns
+         , ribbon config.columns (config.mines - model.flags) model.seconds model.faceState
+         , middleBorder config.columns
+         ]
+            ++ rows
             ++ [ bottomBorder config.columns ]
         )
 
@@ -402,12 +447,6 @@ ribbon count flagCount seconds faceState =
     div
         [ css [ displayFlex ] ]
         [ ribbonBorder, counter flagCount 6 0, faceButton count faceState, counter seconds 0 6, ribbonBorder ]
-
-
-row : List (Html msg) -> Html msg
-row elements =
-    div [ css [ displayFlex ] ]
-        (sideView :: elements ++ [ sideView ])
 
 
 
@@ -422,22 +461,25 @@ faceButton count faceState =
     in
     div []
         [ div
-            [ css [ margin4 (px 3) (px amount) (px 3) (px amount) ]
-            , case faceState of
-                FaceStateUp FaceStateUpDefault ->
-                    spriteAttributes ( 0, -55 ) 26 26
+            [ css
+                (margin4 (px 3) (px amount) (px 3) (px amount)
+                    :: (case faceState of
+                            FaceStateUp FaceStateUpDefault ->
+                                faceStyles 0
 
-                FaceStateDown ->
-                    spriteAttributes ( -26, -55 ) 26 26
+                            FaceStateDown ->
+                                faceStyles -26
 
-                FaceStateUp FaceStateUpSurprise ->
-                    spriteAttributes ( -52, -55 ) 26 26
+                            FaceStateUp FaceStateUpSurprise ->
+                                faceStyles -52
 
-                FaceStateUp FaceStateUpLost ->
-                    spriteAttributes ( -78, -55 ) 26 26
+                            FaceStateUp FaceStateUpLost ->
+                                faceStyles -78
 
-                FaceStateUp FaceStateUpWon ->
-                    spriteAttributes ( -104, -55 ) 26 26
+                            FaceStateUp FaceStateUpWon ->
+                                faceStyles -104
+                       )
+                )
             , onClick OnFaceClick
             , onMouseDown OnFaceMouseDown
             , onMouseOut OnFaceMouseOut
@@ -453,9 +495,6 @@ faceButton count faceState =
 cellView : Model -> Cell -> Html Msg
 cellView model cell =
     case model.state of
-        Building ->
-            initialViewSilent
-
         Playing _ ->
             case cell.state of
                 Initial ->
@@ -524,17 +563,17 @@ clickedView cell =
         ]
 
 
-initialViewSilent : Html Msg
+initialViewSilent : Html msg
 initialViewSilent =
     tileView ( 0, -39 ) []
 
 
-mineView : Html Msg
+mineView : Html msg
 mineView =
     tileView ( -64, -39 ) []
 
 
-mineClickedView : Html Msg
+mineClickedView : Html msg
 mineClickedView =
     tileView ( -32, -39 ) []
 
@@ -545,113 +584,19 @@ flagView cell =
         [ onMouseDown (OnCellMouseDown cell) ]
 
 
-flagViewSilent : Html Msg
+flagViewSilent : Html msg
 flagViewSilent =
     tileView ( -16, -39 ) []
 
 
-errorView : Html Msg
+errorView : Html msg
 errorView =
     tileView ( -48, -39 ) []
 
 
-valueView : Int -> Html Msg
+valueView : Int -> Html msg
 valueView value =
     tileView ( -(16 * toFloat value), -23 ) []
-
-
-
--- decorative views
-
-
-topLeftCorner : Html msg
-topLeftCorner =
-    spriteView ( 0, -81 ) 10 10
-
-
-topRightCorner : Html msg
-topRightCorner =
-    spriteView ( -10, -81 ) 10 10
-
-
-topBorderCell : Html msg
-topBorderCell =
-    spriteView ( -40, -81 ) 16 10
-
-
-bottomLeftCorner : Html msg
-bottomLeftCorner =
-    spriteView ( -20, -81 ) 10 10
-
-
-bottomRightCorner : Html msg
-bottomRightCorner =
-    spriteView ( -30, -81 ) 10 10
-
-
-topBorder : Int -> Html msg
-topBorder count =
-    div
-        [ css [ displayFlex ] ]
-        (topLeftCorner :: List.repeat count topBorderCell ++ [ topRightCorner ])
-
-
-middleLeftCorner : Html msg
-middleLeftCorner =
-    spriteView ( -56, -81 ) 10 10
-
-
-middleRightCorner : Html msg
-middleRightCorner =
-    spriteView ( -66, -81 ) 10 10
-
-
-middleBorder : Int -> Html msg
-middleBorder count =
-    div
-        [ css [ displayFlex ] ]
-        (middleLeftCorner :: List.repeat count topBorderCell ++ [ middleRightCorner ])
-
-
-bottomBorder : Int -> Html msg
-bottomBorder count =
-    div
-        [ css [ displayFlex ] ]
-        (bottomLeftCorner :: List.repeat count topBorderCell ++ [ bottomRightCorner ])
-
-
-ribbonBorder : Html msg
-ribbonBorder =
-    spriteView ( -134, -39 ) 10 32
-
-
-sideView : Html msg
-sideView =
-    spriteView ( -134, -39 ) 10 16
-
-
-
--- view helpers
-
-
-tileView : ( Float, Float ) -> List (Attribute Msg) -> Html Msg
-tileView offset events =
-    div (spriteAttributes offset 16 16 :: events ++ [ onContextMenu NoOp ]) []
-
-
-spriteView : ( Float, Float ) -> Float -> Float -> Html msg
-spriteView offset width height =
-    div [ spriteAttributes offset width height ] []
-
-
-spriteAttributes : ( Float, Float ) -> Float -> Float -> Attribute msg
-spriteAttributes ( x, y ) w h =
-    css
-        [ backgroundImage (url "assets/sprite.gif")
-        , backgroundPosition2 (px x) (px y)
-        , width (px w)
-        , height (px h)
-        ]
 
 
 
