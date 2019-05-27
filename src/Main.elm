@@ -70,19 +70,6 @@ initialGrid =
     Grid.initialize config.rows config.columns initialCell
 
 
-testCoordinates =
-    [ ( 0, 0 )
-    , ( 0, 1 )
-    , ( 0, 2 )
-    , ( 1, 0 )
-    , ( 1, 1 )
-    , ( 1, 2 )
-    , ( 2, 0 )
-    , ( 2, 1 )
-    , ( 2, 2 )
-    ]
-
-
 init : () -> ( Model, Cmd Msg )
 init _ =
     let
@@ -154,7 +141,6 @@ type Msg
     | OnCellMouseDown Cell Button
     | OnCellMouseOver Cell
     | OnCellMouseOut Cell
-    | OnCellMouseClick Cell Button
     | OnCellMouseUp Cell Button
     | OnFaceMouseDown Button
     | OnFaceMouseOut
@@ -206,15 +192,6 @@ update msg model =
 
                 Revealed ->
                     ( model, Cmd.none )
-
-        OnCellMouseClick cell Left ->
-            ( model, Cmd.none )
-
-        OnCellMouseClick _ Middle ->
-            ( model, Cmd.none )
-
-        OnCellMouseClick _ Right ->
-            ( model, Cmd.none )
 
         OnCellMouseOver cell ->
             if model.isMouseDown then
@@ -549,6 +526,7 @@ initialView : Cell -> Html Msg
 initialView cell =
     tileView ( 0, -39 )
         [ onMouseDown (OnCellMouseDown cell)
+        , onMouseUp (OnCellMouseUp cell)
         , onMouseOver (OnCellMouseOver cell)
         , onMouseOut (OnCellMouseOut cell)
         ]
@@ -557,8 +535,11 @@ initialView cell =
 clickedView : Cell -> Html Msg
 clickedView cell =
     tileView ( 0, -23 )
-        [ onMouseUp (OnCellMouseUp cell)
-        , onClick (OnCellMouseClick cell)
+        [ onMouseDown (OnCellMouseDown cell)
+        , onMouseUp (OnCellMouseUp cell)
+        , onMouseOver (OnCellMouseOver cell)
+
+        -- , onClick (OnCellMouseClick cell)
         , onMouseOut (OnCellMouseOut cell)
         ]
 
