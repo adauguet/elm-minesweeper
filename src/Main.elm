@@ -4,7 +4,7 @@ import Browser
 import Browser.Events as Events
 import Cell exposing (Cell, CellState(..), CellValue(..))
 import Counter exposing (counter)
-import Css exposing (backgroundColor, displayFlex, margin4, px, rgb, width)
+import Css exposing (backgroundColor, display, displayFlex, inlineBlock, margin4, px, rgb)
 import Grid exposing (Grid, randomCoordinates)
 import Html.Styled exposing (Html, div, toUnstyled)
 import Html.Styled.Attributes exposing (css)
@@ -34,7 +34,10 @@ config =
 
 
 type FaceState
-    = FaceStateUp FaceStateUp
+    = FaceStateDefault
+    | FaceStateLost
+    | FaceStateWon
+    | FaceStateSurprise
     | FaceStateDown
 
 
@@ -42,13 +45,6 @@ type State
     = Playing Bool
     | Lost ( Int, Int )
     | Won
-
-
-type FaceStateUp
-    = FaceStateUpDefault
-    | FaceStateUpLost
-    | FaceStateUpWon
-    | FaceStateUpSurprise
 
 
 type alias Model =
@@ -72,19 +68,39 @@ initialGrid =
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    let
-        grid =
-            initialGrid
-    in
-    ( { grid = grid
+    ( { grid = initialGrid
       , state = Playing False
-      , faceState = FaceStateUp FaceStateUpDefault
+      , faceState = FaceStateDefault
       , isMouseDown = False
       , flags = 0
       , seconds = 0
       }
     , Cmd.none
     )
+
+
+setMines : List ( Int, Int ) -> Grid Cell -> Grid Cell
+setMines coordinates grid =
+    case coordinates of
+        [] ->
+            grid
+
+        head :: tail ->
+            let
+                newGrid =
+                    setMine head grid
+            in
+            setMines tail newGrid
+
+
+setMine : ( Int, Int ) -> Grid Cell -> Grid Cell
+setMine coordinate grid =
+    case Grid.get coordinate grid of
+        Just cell ->
+            Grid.set coordinate { cell | value = Mine } grid
+
+        Nothing ->
+            grid
 
 
 computeValues : Grid Cell -> Grid Cell
@@ -111,13 +127,10 @@ computeValue grid coordinate =
         neighbors =
             getNeighbors coordinate
                 |> Grid.getMultiple grid
-
-        value =
-            neighbors
-                |> List.filter (\cell -> cell.value == Mine)
-                |> List.length
     in
-    value
+    neighbors
+        |> List.filter (\cell -> cell.value == Mine)
+        |> List.length
 
 
 hasWon : Grid Cell -> Bool
@@ -174,13 +187,13 @@ update msg model =
         OnCellMouseDown cell Left ->
             ( { model
                 | grid = setCellDown model.grid cell True
-                , faceState = FaceStateUp FaceStateUpSurprise
+                , faceState = FaceStateSurprise
               }
             , Cmd.none
             )
 
         OnCellMouseDown _ Middle ->
-            ( { model | faceState = FaceStateUp FaceStateUpSurprise }, Cmd.none )
+            ( { model | faceState = FaceStateSurprise }, Cmd.none )
 
         OnCellMouseDown cell Right ->
             case cell.state of
@@ -206,10 +219,7 @@ update msg model =
         OnCellMouseUp cell Left ->
             handleCellLeftClick model cell
 
-        OnCellMouseUp _ Middle ->
-            ( model, Cmd.none )
-
-        OnCellMouseUp _ Right ->
+        OnCellMouseUp _ _ ->
             ( model, Cmd.none )
 
         OnFaceMouseDown _ ->
@@ -218,15 +228,12 @@ update msg model =
         OnFaceClick Left ->
             init ()
 
-        OnFaceClick Middle ->
-            ( model, Cmd.none )
-
-        OnFaceClick Right ->
+        OnFaceClick _ ->
             ( model, Cmd.none )
 
         OnFaceMouseOut ->
             if model.faceState == FaceStateDown then
-                ( { model | faceState = FaceStateUp FaceStateUpDefault }, Cmd.none )
+                ( { model | faceState = FaceStateDefault }, Cmd.none )
 
             else
                 ( model, Cmd.none )
@@ -235,7 +242,7 @@ update msg model =
             ( { model | isMouseDown = True }, Cmd.none )
 
         OnMouseUp ->
-            ( { model | isMouseDown = False, faceState = FaceStateUp FaceStateUpDefault }, Cmd.none )
+            ( { model | isMouseDown = False, faceState = FaceStateDefault }, Cmd.none )
 
         Tic _ ->
             ( { model | seconds = model.seconds + 1 }, Cmd.none )
@@ -254,7 +261,7 @@ handleCellLeftClick model cell =
                         ( { model
                             | grid = Grid.set cell.coordinate { cell | state = Revealed } model.grid
                             , state = Lost cell.coordinate
-                            , faceState = FaceStateUp FaceStateUpLost
+                            , faceState = FaceStateLost
                           }
                         , Cmd.none
                         )
@@ -268,7 +275,7 @@ handleCellLeftClick model cell =
                             ( { model
                                 | grid = newGrid
                                 , state = Won
-                                , faceState = FaceStateUp FaceStateUpWon
+                                , faceState = FaceStateWon
                               }
                             , Cmd.none
                             )
@@ -276,7 +283,7 @@ handleCellLeftClick model cell =
                         else
                             ( { model
                                 | grid = newGrid
-                                , faceState = FaceStateUp FaceStateUpDefault
+                                , faceState = FaceStateDefault
                               }
                             , Cmd.none
                             )
@@ -296,30 +303,6 @@ handleCellLeftClick model cell =
 
         _ ->
             ( model, Cmd.none )
-
-
-setMines : List ( Int, Int ) -> Grid Cell -> Grid Cell
-setMines coordinates grid =
-    case coordinates of
-        [] ->
-            grid
-
-        head :: tail ->
-            let
-                newGrid =
-                    setMine head grid
-            in
-            setMines tail newGrid
-
-
-setMine : ( Int, Int ) -> Grid Cell -> Grid Cell
-setMine coordinate grid =
-    case Grid.get coordinate grid of
-        Just cell ->
-            Grid.set coordinate { cell | value = Mine } grid
-
-        Nothing ->
-            grid
 
 
 
@@ -405,7 +388,7 @@ view model =
     in
     div
         [ css
-            [ width (px 500)
+            [ display inlineBlock
             , backgroundColor (rgb 192 192 192)
             ]
         , onContextMenu NoOp
@@ -441,19 +424,19 @@ faceButton count faceState =
             [ css
                 (margin4 (px 3) (px amount) (px 3) (px amount)
                     :: (case faceState of
-                            FaceStateUp FaceStateUpDefault ->
+                            FaceStateDefault ->
                                 faceStyles 0
 
                             FaceStateDown ->
                                 faceStyles -26
 
-                            FaceStateUp FaceStateUpSurprise ->
+                            FaceStateSurprise ->
                                 faceStyles -52
 
-                            FaceStateUp FaceStateUpLost ->
+                            FaceStateLost ->
                                 faceStyles -78
 
-                            FaceStateUp FaceStateUpWon ->
+                            FaceStateWon ->
                                 faceStyles -104
                        )
                 )
@@ -538,8 +521,6 @@ clickedView cell =
         [ onMouseDown (OnCellMouseDown cell)
         , onMouseUp (OnCellMouseUp cell)
         , onMouseOver (OnCellMouseOver cell)
-
-        -- , onClick (OnCellMouseClick cell)
         , onMouseOut (OnCellMouseOut cell)
         ]
 
