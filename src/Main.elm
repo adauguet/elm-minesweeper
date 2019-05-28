@@ -4,11 +4,39 @@ import Browser
 import Browser.Events as Events
 import Cell exposing (Cell, CellState(..), CellValue(..))
 import Counter exposing (counter)
-import Css exposing (backgroundColor, display, displayFlex, inlineBlock, margin4, px, rgb)
+import Css
+    exposing
+        ( alignItems
+        , backgroundColor
+        , batch
+        , border
+        , center
+        , color
+        , column
+        , displayFlex
+        , flexDirection
+        , focus
+        , fontFamily
+        , fontSize
+        , hover
+        , margin4
+        , marginBottom
+        , marginLeft
+        , marginRight
+        , marginTop
+        , none
+        , outline
+        , padding4
+        , px
+        , rem
+        , rgb
+        , sansSerif
+        , zero
+        )
 import Grid exposing (Grid, randomCoordinates)
-import Html.Styled exposing (Html, div, toUnstyled)
-import Html.Styled.Attributes exposing (css)
-import Html.Styled.Events exposing (onMouseOut, onMouseOver)
+import Html.Styled exposing (Html, a, button, div, h1, h3, text, toUnstyled)
+import Html.Styled.Attributes exposing (css, href, target)
+import Html.Styled.Events as E exposing (onMouseOut, onMouseOver)
 import Html.Styled.Events.Extra exposing (Button(..), onClick, onContextMenu, onMouseDown, onMouseUp)
 import Json.Decode as D
 import Random
@@ -25,11 +53,38 @@ import UI
         )
 
 
-config : { rows : Int, columns : Int, mines : Int }
-config =
-    { rows = 16
-    , columns = 30
-    , mines = 99
+config : Level -> Config
+config level =
+    case level of
+        Beginner ->
+            { rows = 9
+            , columns = 9
+            , mines = 10
+            }
+
+        Intermediate ->
+            { rows = 16
+            , columns = 16
+            , mines = 40
+            }
+
+        Expert ->
+            { rows = 16
+            , columns = 30
+            , mines = 99
+            }
+
+
+type Level
+    = Beginner
+    | Intermediate
+    | Expert
+
+
+type alias Config =
+    { rows : Int
+    , columns : Int
+    , mines : Int
     }
 
 
@@ -54,26 +109,33 @@ type alias Model =
     , isMouseDown : Bool
     , flags : Int
     , seconds : Int
+    , level : Level
     }
 
 
-initialGrid : Grid Cell
-initialGrid =
+initialGrid : Config -> Grid Cell
+initialGrid conf =
     let
         initialCell coordinate =
             { state = Initial, coordinate = coordinate, value = Value 0, isDown = False }
     in
-    Grid.initialize config.rows config.columns initialCell
+    Grid.initialize conf.rows conf.columns initialCell
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { grid = initialGrid
+    reset Expert
+
+
+reset : Level -> ( Model, Cmd Msg )
+reset level =
+    ( { grid = initialGrid (config level)
       , state = Playing False
       , faceState = FaceStateDefault
       , isMouseDown = False
       , flags = 0
       , seconds = 0
+      , level = level
       }
     , Cmd.none
     )
@@ -162,6 +224,7 @@ type Msg
     | OnMouseUp
     | Tic Posix
     | NoOp
+    | OnSelectLevel Level
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -226,7 +289,7 @@ update msg model =
             ( { model | faceState = FaceStateDown }, Cmd.none )
 
         OnFaceClick Left ->
-            init ()
+            reset model.level
 
         OnFaceClick _ ->
             ( model, Cmd.none )
@@ -249,6 +312,9 @@ update msg model =
 
         NoOp ->
             ( model, Cmd.none )
+
+        OnSelectLevel level ->
+            reset level
 
 
 handleCellLeftClick : Model -> Cell -> ( Model, Cmd Msg )
@@ -298,8 +364,11 @@ handleCellLeftClick model cell =
             let
                 avoid =
                     cell.coordinate :: getNeighbors cell.coordinate
+
+                mines =
+                    (config model.level).mines
             in
-            ( model, Random.generate (GotMinesCoordinates cell.coordinate) (randomCoordinates config.mines model.grid avoid) )
+            ( model, Random.generate (GotMinesCoordinates cell.coordinate) (randomCoordinates mines model.grid avoid) )
 
         _ ->
             ( model, Cmd.none )
@@ -379,26 +448,92 @@ getNeighbors ( x, y ) =
 
 view : Model -> Html Msg
 view model =
+    div
+        [ css
+            [ displayFlex
+            , flexDirection column
+            , alignItems center
+            , fontFamily sansSerif
+            ]
+        ]
+        [ h1 [ css [ marginBottom zero ] ] [ text "elm-minesweeper" ]
+        , h3 [ css [ marginBottom (rem 3) ] ] [ text "The classic minesweeper, in Elm." ]
+        , div [ css [ marginBottom (rem 1) ] ]
+            [ levelButton model.level "Beginner" Beginner
+            , levelButton model.level "Intermediate" Intermediate
+            , levelButton model.level "Expert" Expert
+            ]
+        , board model
+        , div
+            [ css [ marginTop (rem 1) ] ]
+            [ a
+                [ href "https://github.com/adauguet/elm-minesweeper"
+                , target "_blank"
+                ]
+                [ text "source code" ]
+            ]
+        ]
+
+
+levelButton : Level -> String -> Level -> Html Msg
+levelButton currentLevel title level =
+    let
+        isSelected =
+            currentLevel == level
+    in
+    button
+        [ css
+            [ padding4 (rem 0.5) (rem 1) (rem 0.5) (rem 1)
+            , marginLeft (rem 0.1)
+            , marginRight (rem 0.1)
+            , border (rem 0)
+            , fontSize (px 12)
+            , focus [ outline zero ]
+            , if isSelected then
+                batch
+                    [ backgroundColor (rgb 50 50 50)
+                    , color (rgb 255 255 255)
+                    ]
+
+              else
+                batch
+                    [ backgroundColor (rgb 255 255 255)
+                    , color (rgb 50 50 50)
+                    , hover
+                        [ backgroundColor (rgb 200 200 200)
+                        , color (rgb 50 50 50)
+                        ]
+                    ]
+            ]
+        , E.onClick (OnSelectLevel level)
+        ]
+        [ text title ]
+
+
+board : Model -> Html Msg
+board model =
     let
         rows =
             model.grid
                 |> Grid.map (cellView model)
                 |> Grid.toLists
                 |> List.map row
+
+        conf =
+            config model.level
     in
     div
         [ css
-            [ display inlineBlock
-            , backgroundColor (rgb 192 192 192)
+            [ backgroundColor (rgb 192 192 192)
             ]
         , onContextMenu NoOp
         ]
-        ([ topBorder config.columns
-         , ribbon config.columns (config.mines - model.flags) model.seconds model.faceState
-         , middleBorder config.columns
+        ([ topBorder conf.columns
+         , ribbon conf.columns (conf.mines - model.flags) model.seconds model.faceState
+         , middleBorder conf.columns
          ]
             ++ rows
-            ++ [ bottomBorder config.columns ]
+            ++ [ bottomBorder conf.columns ]
         )
 
 
