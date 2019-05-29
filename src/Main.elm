@@ -10,6 +10,7 @@ import Css
         , backgroundColor
         , batch
         , border
+        , border3
         , center
         , color
         , column
@@ -18,7 +19,9 @@ import Css
         , focus
         , fontFamily
         , fontSize
+        , height
         , hover
+        , margin
         , margin4
         , marginBottom
         , marginLeft
@@ -27,16 +30,19 @@ import Css
         , none
         , outline
         , padding4
+        , paddingLeft
         , px
         , rem
         , rgb
         , sansSerif
+        , solid
+        , width
         , zero
         )
 import Grid exposing (Grid, randomCoordinates)
-import Html.Styled exposing (Html, a, button, div, h1, h3, text, toUnstyled)
-import Html.Styled.Attributes exposing (css, href, target)
-import Html.Styled.Events as E exposing (onMouseOut, onMouseOver)
+import Html.Styled exposing (Html, a, button, div, h1, h3, input, label, text, toUnstyled)
+import Html.Styled.Attributes exposing (checked, css, for, href, id, target, type_)
+import Html.Styled.Events as E exposing (onCheck, onMouseOut, onMouseOver)
 import Html.Styled.Events.Extra exposing (Button(..), onClick, onContextMenu, onMouseDown, onMouseUp)
 import Json.Decode as D
 import Random
@@ -457,11 +463,11 @@ view model =
             ]
         ]
         [ h1 [ css [ marginBottom zero ] ] [ text "elm-minesweeper" ]
-        , h3 [ css [ marginBottom (rem 3) ] ] [ text "The classic minesweeper, in Elm." ]
+        , h3 [ css [ marginBottom (rem 2) ] ] [ text "The classic minesweeper, in Elm." ]
         , div [ css [ marginBottom (rem 1) ] ]
-            [ levelButton model.level "Beginner" Beginner
-            , levelButton model.level "Intermediate" Intermediate
-            , levelButton model.level "Expert" Expert
+            [ radio model.level "beginner" "Beginner" Beginner
+            , radio model.level "intermediate" "Intermediate" Intermediate
+            , radio model.level "expert" "Expert" Expert
             ]
         , board model
         , div
@@ -475,39 +481,29 @@ view model =
         ]
 
 
-levelButton : Level -> String -> Level -> Html Msg
-levelButton currentLevel title level =
+radio : Level -> String -> String -> Level -> Html Msg
+radio currentLevel id_ title level =
     let
         isSelected =
             currentLevel == level
     in
-    button
-        [ css
-            [ padding4 (rem 0.5) (rem 1) (rem 0.5) (rem 1)
-            , marginLeft (rem 0.1)
-            , marginRight (rem 0.1)
-            , border (rem 0)
-            , fontSize (px 12)
-            , focus [ outline zero ]
-            , if isSelected then
-                batch
-                    [ backgroundColor (rgb 50 50 50)
-                    , color (rgb 255 255 255)
-                    ]
-
-              else
-                batch
-                    [ backgroundColor (rgb 255 255 255)
-                    , color (rgb 50 50 50)
-                    , hover
-                        [ backgroundColor (rgb 200 200 200)
-                        , color (rgb 50 50 50)
-                        ]
-                    ]
+    div [ css [ marginTop (rem 0.2), marginBottom (rem 0.2) ] ]
+        [ input
+            [ type_ "radio"
+            , id id_
+            , onCheck (\_ -> OnSelectLevel level)
+            , checked isSelected
             ]
-        , E.onClick (OnSelectLevel level)
+            []
+        , label
+            [ css
+                [ paddingLeft (rem 0.2)
+                , fontSize (px 14)
+                ]
+            , for id_
+            ]
+            [ text title ]
         ]
-        [ text title ]
 
 
 board : Model -> Html Msg
