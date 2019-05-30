@@ -21,6 +21,7 @@ import Css
         , fontSize
         , height
         , hover
+        , link
         , margin
         , margin4
         , marginBottom
@@ -36,6 +37,9 @@ import Css
         , rgb
         , sansSerif
         , solid
+        , textDecoration
+        , underline
+        , visited
         , width
         , zero
         )
@@ -471,10 +475,32 @@ view model =
             ]
         , board model
         , div
-            [ css [ marginTop (rem 1) ] ]
-            [ a
+            [ css
+                [ marginTop (rem 1)
+                , fontSize (px 14)
+                , color (rgb 100 100 100)
+                ]
+            ]
+            [ text "inspiration: "
+            , a
+                [ href "http://minesweeperonline.com"
+                , target "_blank"
+                , css
+                    [ link [ color (rgb 100 100 100), textDecoration none ]
+                    , hover [ textDecoration underline ]
+                    , visited [ color (rgb 100 100 100) ]
+                    ]
+                ]
+                [ text "http://minesweeperonline.com" ]
+            , text " | "
+            , a
                 [ href "https://github.com/adauguet/elm-minesweeper"
                 , target "_blank"
+                , css
+                    [ link [ color (rgb 100 100 100), textDecoration none ]
+                    , hover [ textDecoration underline ]
+                    , visited [ color (rgb 100 100 100) ]
+                    ]
                 ]
                 [ text "source code" ]
             ]
